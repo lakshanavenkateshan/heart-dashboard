@@ -27,7 +27,7 @@ st.markdown("""
 # -------------------------
 # Upload + Load CSV
 # -------------------------
-st.markdown("<h2 class='big-font'>Heart Disease Risk Prediction Dashboard</h2>", unsafe_allow_html=True)
+st.markdown("<h2 class='big-font'>❤️ Heart Disease Risk Prediction Dashboard</h2>", unsafe_allow_html=True)
 uploaded = st.file_uploader("Upload your dataset (processed_cleveland.csv or similar)", type=["csv"])
 
 if uploaded:
@@ -81,7 +81,7 @@ with col1:
 # --- Middle: Feature importance chart ---
 with col2:
     st.markdown("<div class='section'>", unsafe_allow_html=True)
-    st.subheader("Feature Importance")
+    st.subheader("🌿 Feature Importance")
     rf.fit(X_scaled, y)
     feat_imp = pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False)
     fig = px.bar(feat_imp.head(10), x=feat_imp.head(10).values, y=feat_imp.head(10).index,
@@ -93,7 +93,7 @@ with col2:
 # --- Right: Correlation heatmap ---
 with col3:
     st.markdown("<div class='section'>", unsafe_allow_html=True)
-    st.subheader("Correlation Heatmap")
+    st.subheader("📊 Correlation Heatmap")
     fig2, ax = plt.subplots(figsize=(5,4))
     sns.heatmap(df.corr(), cmap="coolwarm", cbar=False, ax=ax)
     st.pyplot(fig2)
@@ -103,7 +103,7 @@ with col3:
 # Bottom Row: Batch prediction summary
 # -------------------------
 st.markdown("<br><div class='section'>", unsafe_allow_html=True)
-st.subheader("Batch Prediction Results")
+st.subheader("📁 Batch Prediction Results")
 
 batch_scaled = scaler.transform(X)
 probs = ensemble.predict_proba(batch_scaled)[:,1]
@@ -122,4 +122,5 @@ with colB:
 
 st.markdown("</div>", unsafe_allow_html=True)
 
+st.caption("⚠️ This model is for educational use only. Validate clinically before deployment.")
 
