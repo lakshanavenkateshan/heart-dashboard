@@ -162,6 +162,14 @@ with col2:
     srisk, scol = risk_category(scenario_prob)
     st.markdown(f"**Scenario Risk:** <span style='color:{scol};font-weight:600'>{srisk}</span>", unsafe_allow_html=True)
     st.write("Updated Probability:", f"{scenario_prob*100:.2f}%")
+    # 💬 Personalized suggestion based on scenario risk
+if srisk == "High":
+    st.error("⚠️ High risk detected after changes. Consult your doctor before making further lifestyle changes.")
+elif srisk == "Medium":
+    st.warning("🩺 Moderate risk in this scenario. Focus on improving diet, physical activity, and stress management.")
+else:
+    st.success("💚 Low risk achieved! Continue following heart-healthy routines.")
+
 
     st.markdown("**Global Feature Importance (Random Forest)**")
     st.bar_chart(imp)
