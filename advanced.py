@@ -1,3 +1,4 @@
+# advanced_layout_fixed.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -5,12 +6,11 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.naive_bayes import GaussianNB
-from sklearn.model_selection import train_test_split
 import shap
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.graph_objects as go
-import io
+import plotly.express as px
 
 st.set_page_config(layout="wide", page_title="Advanced Heart Disease Dashboard")
 
@@ -49,224 +49,230 @@ def personalized_recs(top_features):
             recs.append(f"Address {f}: lifestyle modification and clinical follow-up as appropriate.")
     return list(dict.fromkeys(recs))
 
+def suggestion_text(label):
+    if label == "High":
+        return "⚠️ High risk — consult a cardiologist soon, avoid smoking, follow heart-healthy diet, and get tests."
+    elif label == "Medium":
+        return "🩺 Moderate risk — monitor BP/cholesterol, exercise daily, maintain healthy weight."
+    else:
+        return "💚 Low risk — keep healthy habits; annual check-ups recommended."
+
 # -------------------------
-# Load dataset & train
+# Sidebar: Data / Model Setup + Manual Input + Suggestion
 # -------------------------
-st.sidebar.header("Data / Model Setup")
-csv_path = st.sidebar.text_input("Local CSV path (or leave blank to use default processed_cleveland.csv)", value="processed_cleveland.csv")
+st.sidebar.title("Data / Model Setup")
+
+csv_path = st.sidebar.text_input("Local CSV path (or leave blank to use default processed_cleveland.csv)",
+                                value="processed_cleveland.csv")
+
+# Optional: allow upload for processed CSV
+uploaded_main = st.sidebar.file_uploader("Or upload processed CSV", type=["csv"], key="main_csv")
 
 try:
-    df = load_and_prep(csv_path)
+    if uploaded_main is not None:
+        df = pd.read_csv(uploaded_main)
+    else:
+        df = load_and_prep(csv_path)
 except Exception as e:
-    st.sidebar.error(f"Couldn't load {csv_path}: {e}")
+    st.sidebar.error(f"Couldn't load dataset: {e}")
     st.stop()
 
 if "num" not in df.columns:
     st.sidebar.error("Dataset must contain 'num' target column (0=no disease, 1-4 = disease).")
     st.stop()
 
+# keep original df for means
+df = df.replace("?", np.nan).apply(pd.to_numeric, errors="coerce").fillna(df.mean())
+
 X = df.drop("num", axis=1)
 y = (df["num"] > 0).astype(int)
 
-# scale
+# scale and models (train once)
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# models
 log_reg = LogisticRegression(max_iter=2000)
 rf = RandomForestClassifier(n_estimators=200, random_state=42)
 nb = GaussianNB()
 ensemble = VotingClassifier(estimators=[('lr', log_reg), ('rf', rf), ('nb', nb)], voting='soft')
+
+# fit models
 ensemble.fit(X_scaled, y)
 rf.fit(X_scaled, y)
 
-# SHAP explainer
-explainer = shap.Explainer(rf, X, feature_perturbation="interventional")
+# SHAP explainer (robust)
+try:
+    explainer = shap.Explainer(rf, X, feature_perturbation="interventional")
+except Exception:
+    explainer = None
 
-# -------------------------
-# Layout - top row
-# -------------------------
-st.title("Advanced Heart Disease Risk Prediction — Explainable & Interactive")
-col1, col2 = st.columns([1,2])
+st.sidebar.markdown("### Manual Patient Input (use these to predict)")
 
-with col1:
-    st.subheader("Single Patient (Manual Input)")
-    user_inputs = {}
-    for c in X.columns:
-        default = float(df[c].mean())
-        minv = float(df[c].min() if np.isfinite(df[c].min()) else default - 50)
-        maxv = float(df[c].max() if np.isfinite(df[c].max()) else default + 50)
-        step = (maxv - minv) / 100 if (maxv - minv) != 0 else 1.0
-        user_inputs[c] = st.number_input(c, value=default, min_value=minv, max_value=maxv, step=step, format="%.3f")
-    input_df = pd.DataFrame([user_inputs])
-    input_scaled = scaler.transform(input_df)
-    prob = ensemble.predict_proba(input_scaled)[0][1]
-    label, col = risk_category(prob)
-    st.markdown(f"**Predicted Risk:** <span style='color:{col};font-weight:600'>{label}</span>", unsafe_allow_html=True)
-    st.write("Probability:", f"{prob*100:.2f}%")
-    # 💬 Personalized suggestion based on risk level
-if label == "High":
-    st.error("You are at high risk. Schedule a full cardiac check-up soon, reduce stress, avoid smoking, and follow a heart-healthy diet.")
-elif label == "Medium":
-    st.warning("You are at moderate risk. Maintain healthy weight, exercise 30 mins daily, and monitor BP and cholesterol regularly.")
+# Manual inputs in sidebar (exact same fields)
+manual_inputs = {}
+for c in X.columns:
+    manual_inputs[c] = st.sidebar.number_input(c, float(df[c].mean()), format="%.3f", key=f"manual_{c}")
+
+manual_df = pd.DataFrame([manual_inputs])
+manual_scaled = scaler.transform(manual_df)
+manual_prob = ensemble.predict_proba(manual_scaled)[0][1]
+manual_label, manual_color = risk_category(manual_prob)
+
+st.sidebar.markdown(f"**Prediction:** <span style='color:{manual_color};font-weight:600'>{manual_label}</span>",
+                    unsafe_allow_html=True)
+st.sidebar.write(f"Probability: {manual_prob*100:.2f}%")
+
+# Personalized suggestion under manual setup
+st.sidebar.markdown("**Personalized suggestion:**")
+if manual_label == "High":
+    st.sidebar.error(suggestion_text("High"))
+elif manual_label == "Medium":
+    st.sidebar.warning(suggestion_text("Medium"))
 else:
-    st.success("You are at low risk. Keep up your healthy habits, balanced diet, and regular physical activity.")
+    st.sidebar.success(suggestion_text("Low"))
 
+# -------------------------
+# Main area: Title + What-if only (right side)
+# -------------------------
+st.markdown("<h1 style='text-align:center'>Advanced Heart Disease Risk Prediction — Explainable & Interactive</h1>",
+            unsafe_allow_html=True)
+st.markdown("---")
 
-    # -----------------------------
-    # SHAP explanation (Fixed version)
-    # -----------------------------
-    st.markdown("**Why this prediction? (SHAP)**")
-    try:
-        shap_values = explainer(input_df)
-        if hasattr(shap_values, "values") and shap_values.values.ndim == 3:
-            vals = shap_values.values[0][:, 0]
-        elif hasattr(shap_values, "values"):
-            vals = shap_values.values[0]
+col_main_left, col_main_right = st.columns([2, 1])
+
+with col_main_left:
+    st.header("Single Patient Overview")
+    st.write("Manual input prediction (shown on left).")
+    # Show a compact SHAP & RF importance area (collapsible to keep main area clean)
+    with st.expander("Explainability & Feature Importance (SHAP / Random Forest)"):
+        # SHAP per-patient explanation (try robustly)
+        st.subheader("SHAP explanation (local)")
+        if explainer is not None:
+            try:
+                shap_values = explainer(manual_df)
+                # normalize shap_values shape
+                if hasattr(shap_values, "values") and shap_values.values.ndim == 3:
+                    vals = shap_values.values[0][:, 0]
+                elif hasattr(shap_values, "values"):
+                    vals = shap_values.values[0]
+                else:
+                    vals = shap_values[0]
+                contribs = pd.Series(vals, index=X.columns).sort_values(ascending=False)
+                st.write("Top contributing features (local):")
+                st.bar_chart(contribs.head(10))
+            except Exception as e:
+                st.warning(f"SHAP failed: {e}")
+                st.write("Using RF feature importances instead:")
+                st.bar_chart(pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False).head(10))
         else:
-            vals = shap_values[0]
-        contribs = pd.Series(vals, index=X.columns).sort_values(ascending=False)
-        st.write("Top contributing features for this prediction:")
-        st.bar_chart(contribs.head(5))
-    except Exception as e:
-        st.warning(f"SHAP visualization failed — fallback used. Reason: {e}")
-        feat_imp = pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False)
-        st.write("Top risk-contributing features (by model importance):")
-        st.bar_chart(feat_imp.head(5))
+            st.write("SHAP unavailable — showing RF importances:")
+            st.bar_chart(pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False).head(10))
 
-    # Radar Chart
-    st.markdown("**Patient vs Dataset Mean (Radar)**")
+    # Radar chart (patient vs mean)
+    st.subheader("Patient vs Dataset Mean (Radar)")
     mean_vals = df.mean()[X.columns]
     categories = list(X.columns)
-    patient_vals = input_df.iloc[0].values
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(r=patient_vals, theta=categories, fill='toself', name='Patient'))
-    fig.add_trace(go.Scatterpolar(r=mean_vals.values, theta=categories, fill='toself', name='Dataset Mean'))
-    fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, height=500)
-    st.plotly_chart(fig, use_container_width=True)
+    patient_vals = manual_df.iloc[0].values
+    radar_fig = go.Figure()
+    radar_fig.add_trace(go.Scatterpolar(r=patient_vals, theta=categories, fill='toself', name='Patient'))
+    radar_fig.add_trace(go.Scatterpolar(r=mean_vals.values, theta=categories, fill='toself', name='Dataset Mean'))
+    radar_fig.update_layout(polar=dict(radialaxis=dict(visible=True)), showlegend=True, height=420)
+    st.plotly_chart(radar_fig, use_container_width=True)
 
-with col2:
-    st.subheader("What-if / Sensitivity Controls")
-    st.markdown("Use sliders to adjust critical features and watch probability update.")
+with col_main_right:
+    st.header("What-if / Sensitivity Controls")
+    st.markdown("Use sliders to adjust the most important features and watch probability update.")
+    # use top 6 important features
     imp = pd.Series(rf.feature_importances_, index=X.columns).sort_values(ascending=False)
-    top5 = list(imp.index[:6])
-    scenario = input_df.copy()
-    for f in top5:
-        default = float(input_df[f][0])
+    top_features = list(imp.index[:6])
+    scenario = manual_df.copy()
+    for f in top_features:
+        default = float(manual_df[f][0])
         minv = float(df[f].min())
         maxv = float(df[f].max())
-        s = st.slider(f"Adjust {f}", min_value=minv, max_value=maxv, value=default)
-        scenario.at[0, f] = s
+        scenario.at[0, f] = st.slider(f"Adjust {f}", min_value=minv, max_value=maxv, value=default, step=(maxv-minv)/100)
     scenario_scaled = scaler.transform(scenario)
     scenario_prob = ensemble.predict_proba(scenario_scaled)[0][1]
-    srisk, scol = risk_category(scenario_prob)
-    st.markdown(f"**Scenario Risk:** <span style='color:{scol};font-weight:600'>{srisk}</span>", unsafe_allow_html=True)
-    st.write("Updated Probability:", f"{scenario_prob*100:.2f}%")
-    # 💬 Personalized suggestion based on scenario risk
-if srisk == "High":
-    st.error("⚠️ High risk detected after changes. Consult your doctor before making further lifestyle changes.")
-elif srisk == "Medium":
-    st.warning("🩺 Moderate risk in this scenario. Focus on improving diet, physical activity, and stress management.")
-else:
-    st.success("💚 Low risk achieved! Continue following heart-healthy routines.")
+    scenario_label, scenario_color = risk_category(scenario_prob)
+    st.markdown(f"**Scenario Risk:** <span style='color:{scenario_color};font-weight:600'>{scenario_label}</span>",
+                unsafe_allow_html=True)
+    st.write(f"Updated Probability: {scenario_prob*100:.2f}%")
 
+    # suggestion after what-if
+    if scenario_label == "High":
+        st.error(suggestion_text("High"))
+    elif scenario_label == "Medium":
+        st.warning(suggestion_text("Medium"))
+    else:
+        st.success(suggestion_text("Low"))
 
-    st.markdown("**Global Feature Importance (Random Forest)**")
-    st.bar_chart(imp)
-
-    st.markdown("**Personalized Suggestions**")
-    contribs = pd.Series(vals if 'vals' in locals() else rf.feature_importances_, index=X.columns)
-    top_pos = contribs.sort_values(ascending=False).head(4).index.tolist()
-    recs = personalized_recs(top_pos)
-    for r in recs:
-        st.write("- ", r)
+    # show global feature importance compact
+    st.markdown("**Global Feature Importance (RF)**")
+    st.bar_chart(imp.head(10))
 
 # -------------------------
-# Batch Prediction
+# Batch Prediction / Multi-patient Analysis (separate section)
 # -------------------------
 st.markdown("---")
 st.header("Batch Prediction / Multi-patient Analysis")
-
 colA, colB = st.columns([1,2])
 with colA:
-    uploaded = st.file_uploader("Upload CSV for batch prediction", type=["csv"])
-    if uploaded:
-        try:
-            batch_df = pd.read_csv(uploaded)
-            st.success("Batch CSV loaded.")
-        except Exception as e:
-            st.error(f"Failed to read uploaded CSV: {e}")
-            batch_df = None
-    else:
-        st.info("No CSV uploaded.")
-        batch_df = None
-
+    batch_uploaded = st.file_uploader("Upload CSV for batch prediction (must have same feature columns)", type=["csv"], key="batch")
     if st.button("Download sample template CSV"):
-        sample = pd.DataFrame([df.mean()[:].to_dict()])
-        csv = sample.to_csv(index=False).encode()
-        st.download_button("Download sample CSV", data=csv, file_name="sample_patient_template.csv", mime="text/csv")
-
+        sample = pd.DataFrame([df.mean().to_dict()])
+        st.download_button("Download sample CSV", data=sample.to_csv(index=False), file_name="sample_patient_template.csv")
 with colB:
-    if batch_df is not None:
-        missing = set(X.columns) - set(batch_df.columns)
-        if missing:
-            st.error(f"Uploaded CSV missing columns: {missing}")
-        else:
-            # Clean and preprocess uploaded batch data
+    if batch_uploaded is not None:
+        try:
+            batch_df = pd.read_csv(batch_uploaded)
+            # cleaning like main df
             batch_X = batch_df[X.columns].replace("?", np.nan)
-            batch_X = batch_X.apply(pd.to_numeric, errors='coerce')
-            batch_X = batch_X.fillna(df.mean())
+            batch_X = batch_X.apply(pd.to_numeric, errors='coerce').fillna(df.mean())
             batch_scaled = scaler.transform(batch_X)
-
             batch_probs = ensemble.predict_proba(batch_scaled)[:,1]
             batch_df["risk_prob"] = batch_probs
-            batch_df["risk_cat"], _ = zip(*[risk_category(p) for p in batch_probs])
-            st.write("Batch prediction preview:")
-            st.dataframe(batch_df.head(10))
-
-            import plotly.express as px
-            fig = px.histogram(batch_df, x="risk_prob", nbins=20, title="Risk probability distribution")
-            fig.add_vline(x=0.3, line_dash="dash", annotation_text="0.3 low/med")
-            fig.add_vline(x=0.7, line_dash="dash", annotation_text="0.7 med/high")
-            st.plotly_chart(fig, use_container_width=True)
-
-            st.markdown("**Top 10 highest-risk entries**")
-            st.dataframe(batch_df.sort_values("risk_prob", ascending=False).head(10))
-            csv = batch_df.to_csv(index=False).encode()
-            st.download_button("Download results CSV", data=csv, file_name="batch_predictions.csv", mime="text/csv")
-
-# -------------------------
-# Exploratory Analysis
-# -------------------------
-st.markdown("---")
-st.header("Exploratory Analysis & Trend ")
-
-colX, colY = st.columns(2)
-with colX:
-    st.subheader("Correlation Heatmap")
-    fig_c, ax = plt.subplots(figsize=(10,8))
-    sns.heatmap(df.corr(), annot=True, cmap="coolwarm", ax=ax)
-    st.pyplot(fig_c)
-
-with colY:
-    st.subheader("Time-series Trend (if dataset has 'date')")
-    st.markdown("Upload a CSV with columns: patient_id, date, and features.")
-    ts_uploaded = st.file_uploader("Optional time-series CSV", type=["csv"], key="ts")
-    if ts_uploaded:
-        try:
-            ts = pd.read_csv(ts_uploaded, parse_dates=["date"])
-            if not {"patient_id", "date"}.issubset(ts.columns):
-                st.error("Time-series CSV must contain 'patient_id' and 'date' columns.")
-            else:
-                ts_X = ts[X.columns]
-                ts_scaled = scaler.transform(ts_X)
-                ts_probs = ensemble.predict_proba(ts_scaled)[:,1]
-                ts["risk_prob"] = ts_probs
-                pid = st.selectbox("Select patient_id to view trend", options=ts["patient_id"].unique())
-                p_df = ts[ts["patient_id"] == pid].sort_values("date")
-                st.line_chart(data=p_df.set_index("date")["risk_prob"])
+            batch_df["risk_cat"] = [risk_category(p)[0] for p in batch_probs]
+            st.write("Batch prediction preview (scrollable):")
+            st.dataframe(batch_df, use_container_width=True, height=300)
+            # distribution
+            fig_batch = px.histogram(batch_df, x="risk_prob", nbins=20, title="Risk probability distribution")
+            fig_batch.add_vline(x=0.3, line_dash="dash")
+            fig_batch.add_vline(x=0.7, line_dash="dash")
+            st.plotly_chart(fig_batch, use_container_width=True)
+            st.download_button("Download annotated CSV", data=batch_df.to_csv(index=False), file_name="batch_predictions.csv")
         except Exception as e:
-            st.error(f"Failed processing time-series CSV: {e}")
+            st.error(f"Failed to process batch CSV: {e}")
 
+# -------------------------
+# Time-series Trend + Correlation Heatmap (separate area)
+# -------------------------
 st.markdown("---")
-st.caption("Model trained on provided dataset; validate before clinical use. SHAP aids interpretability but does not replace medical judgement.")
+st.header("Time-series Trend (optional) & Correlation Heatmap")
+st.markdown("Upload a CSV with columns: `patient_id`, `date` (YYYY-MM-DD), and all feature columns.")
+
+ts_uploaded = st.file_uploader("Optional time-series CSV", type=["csv"], key="ts")
+if ts_uploaded is not None:
+    try:
+        ts = pd.read_csv(ts_uploaded, parse_dates=["date"])
+        if not {"patient_id", "date"}.issubset(ts.columns):
+            st.error("Time-series CSV must contain 'patient_id' and 'date' columns.")
+        else:
+            ts = ts.sort_values(by=["patient_id","date"])
+            ts_features = ts[X.columns]
+            ts_scaled = scaler.transform(ts_features)
+            ts["risk_prob"] = ensemble.predict_proba(ts_scaled)[:,1]
+            ts["risk_cat"] = [risk_category(p)[0] for p in ts["risk_prob"]]
+            pid = st.selectbox("Select patient_id for trend", options=ts["patient_id"].unique())
+            p_df = ts[ts["patient_id"]==pid].set_index("date").sort_index()
+            st.line_chart(p_df["risk_prob"])
+            st.dataframe(p_df.head(), use_container_width=True)
+    except Exception as e:
+        st.error(f"Failed processing time-series CSV: {e}")
+
+# Correlation heatmap below
+st.subheader("Feature Correlation Heatmap")
+fig_c, ax = plt.subplots(figsize=(10,6))
+sns.heatmap(df.corr(), annot=True, cmap="coolwarm", ax=ax)
+st.pyplot(fig_c)
+
+st.caption("Model trained on provided dataset; validate before clinical use. SHAP helps interpretability but does not replace clinical judgement.")
