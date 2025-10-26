@@ -51,31 +51,17 @@ def personalized_recs(top_features):
 
 def suggestion_text(label):
     if label == "High":
-        return "⚠️ High risk — consult a cardiologist soon, avoid smoking, follow heart-healthy diet, and get tests."
+        return "High risk — consult a cardiologist soon, avoid smoking, follow heart-healthy diet, and get tests."
     elif label == "Medium":
-        return "🩺 Moderate risk — monitor BP/cholesterol, exercise daily, maintain healthy weight."
+        return "Moderate risk — monitor BP/cholesterol, exercise daily, maintain healthy weight."
     else:
-        return "💚 Low risk — keep healthy habits; annual check-ups recommended."
+        return "Low risk — keep healthy habits; annual check-ups recommended."
 
 # -------------------------
 # Sidebar: Data / Model Setup + Manual Input + Suggestion
-# -------------------------
-st.sidebar.title("Data / Model Setup")
+# Simplified data setup (no visible upload or path)
+df = load_and_prep("processed_cleveland.csv")
 
-csv_path = st.sidebar.text_input("Local CSV path (or leave blank to use default processed_cleveland.csv)",
-                                value="processed_cleveland.csv")
-
-# Optional: allow upload for processed CSV
-uploaded_main = st.sidebar.file_uploader("Or upload processed CSV", type=["csv"], key="main_csv")
-
-try:
-    if uploaded_main is not None:
-        df = pd.read_csv(uploaded_main)
-    else:
-        df = load_and_prep(csv_path)
-except Exception as e:
-    st.sidebar.error(f"Couldn't load dataset: {e}")
-    st.stop()
 
 if "num" not in df.columns:
     st.sidebar.error("Dataset must contain 'num' target column (0=no disease, 1-4 = disease).")
@@ -138,7 +124,7 @@ st.markdown("<h1 style='text-align:center'>Advanced Heart Disease Risk Predictio
             unsafe_allow_html=True)
 st.markdown("---")
 
-col_main_left, col_main_right = st.columns([2, 1])
+col_main_left, col_main_right = st.columns([1.3, 1.7])
 
 with col_main_left:
     st.header("Single Patient Overview")
@@ -239,6 +225,14 @@ with colB:
             fig_batch.add_vline(x=0.3, line_dash="dash")
             fig_batch.add_vline(x=0.7, line_dash="dash")
             st.plotly_chart(fig_batch, use_container_width=True)
+            st.markdown("### Top 10 High-Risk Patients")
+top10 = batch_df.sort_values("risk_prob", ascending=False).head(10)
+st.dataframe(top10)
+
+st.markdown("### Download Full Predictions")
+csv = batch_df.to_csv(index=False).encode()
+st.download_button("Download results CSV", data=csv, file_name="batch_predictions.csv", mime="text/csv")
+
             st.download_button("Download annotated CSV", data=batch_df.to_csv(index=False), file_name="batch_predictions.csv")
         except Exception as e:
             st.error(f"Failed to process batch CSV: {e}")
