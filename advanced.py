@@ -200,10 +200,10 @@ with col_main_right:
 # Batch Prediction / Multi-patient Analysis (separate section)
 # -------------------------
 st.markdown("---")
-st.header("Batch Prediction / Multi-patient Analysis")
+st.header("Multi-patient Analysis")
 colA, colB = st.columns([1,2])
 with colA:
-    batch_uploaded = st.file_uploader("Upload CSV for batch prediction (must have same feature columns)", type=["csv"], key="batch")
+    batch_uploaded = st.file_uploader("Upload CSV for batch prediction", type=["csv"], key="batch")
     if st.button("Download sample template CSV"):
         sample = pd.DataFrame([df.mean().to_dict()])
         st.download_button("Download sample CSV", data=sample.to_csv(index=False), file_name="sample_patient_template.csv")
@@ -218,7 +218,7 @@ with colB:
             batch_probs = ensemble.predict_proba(batch_scaled)[:,1]
             batch_df["risk_prob"] = batch_probs
             batch_df["risk_cat"] = [risk_category(p)[0] for p in batch_probs]
-            st.write("Batch prediction preview (scrollable):")
+            st.write("Batch prediction preview")
             st.dataframe(batch_df, use_container_width=True, height=300)
             # distribution
             fig_batch = px.histogram(batch_df, x="risk_prob", nbins=20, title="Risk probability distribution")
@@ -241,7 +241,7 @@ with colB:
 # Time-series Trend + Correlation Heatmap (separate area)
 # -------------------------
 st.markdown("---")
-st.header("Time-series Trend (optional) & Correlation Heatmap")
+st.header("Time-series Trend & Correlation Heatmap")
 st.markdown("Upload a CSV with columns: `patient_id`, `date` (YYYY-MM-DD), and all feature columns.")
 
 ts_uploaded = st.file_uploader("Optional time-series CSV", type=["csv"], key="ts")
@@ -269,4 +269,3 @@ fig_c, ax = plt.subplots(figsize=(10,6))
 sns.heatmap(df.corr(), annot=True, cmap="coolwarm", ax=ax)
 st.pyplot(fig_c)
 
-st.caption("Model trained on provided dataset; validate before clinical use. SHAP helps interpretability but does not replace clinical judgement.")
