@@ -86,7 +86,7 @@ explainer = shap.Explainer(rf, X, feature_perturbation="interventional")
 # -------------------------
 # Layout - top row
 # -------------------------
-st.title("❤️ Advanced Heart Disease Risk Prediction — Explainable & Interactive")
+st.title("Advanced Heart Disease Risk Prediction — Explainable & Interactive")
 col1, col2 = st.columns([1,2])
 
 with col1:
@@ -104,6 +104,14 @@ with col1:
     label, col = risk_category(prob)
     st.markdown(f"**Predicted Risk:** <span style='color:{col};font-weight:600'>{label}</span>", unsafe_allow_html=True)
     st.write("Probability:", f"{prob*100:.2f}%")
+    # 💬 Personalized suggestion based on risk level
+if label == "High":
+    st.error("You are at high risk. Schedule a full cardiac check-up soon, reduce stress, avoid smoking, and follow a heart-healthy diet.")
+elif label == "Medium":
+    st.warning("You are at moderate risk. Maintain healthy weight, exercise 30 mins daily, and monitor BP and cholesterol regularly.")
+else:
+    st.success("You are at low risk. Keep up your healthy habits, balanced diet, and regular physical activity.")
+
 
     # -----------------------------
     # SHAP explanation (Fixed version)
