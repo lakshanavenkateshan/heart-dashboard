@@ -226,12 +226,12 @@ with colB:
             fig_batch.add_vline(x=0.7, line_dash="dash")
             st.plotly_chart(fig_batch, use_container_width=True)
             st.markdown("### Top 10 High-Risk Patients")
-top10 = batch_df.sort_values("risk_prob", ascending=False).head(10)
-st.dataframe(top10)
+            top10 = batch_df.sort_values("risk_prob", ascending=False).head(10)
+            st.dataframe(top10)
 
-st.markdown("### Download Full Predictions")
-csv = batch_df.to_csv(index=False).encode()
-st.download_button("Download results CSV", data=csv, file_name="batch_predictions.csv", mime="text/csv")
+            st.markdown("### Download Full Predictions")
+            csv = batch_df.to_csv(index=False).encode()
+            st.download_button("Download results CSV", data=csv, file_name="batch_predictions.csv", mime="text/csv")
 
             st.download_button("Download annotated CSV", data=batch_df.to_csv(index=False), file_name="batch_predictions.csv")
         except Exception as e:
